@@ -18,7 +18,7 @@ _POINTER_SCROLL_FINGER = 405
 _SCROLL_VERTICAL = 0
 _SCROLL_HORIZONTAL = 1
 _SCROLL_UNITS_PER_DETENT = 15.0
-_POINTER_SCALE = 1.0
+_POINTER_SCALE = 0.75
 
 _Open = C.CFUNCTYPE(C.c_int, C.c_char_p, C.c_int, C.c_void_p)
 _Close = C.CFUNCTYPE(None, C.c_int, C.c_void_p)
@@ -178,8 +178,8 @@ async def mouse_events(path, switch_space=None):
                                 frame = [InputEvent(0, 0, ecodes.EV_KEY, code, state)]
                         else:
                             for axis, code, direction in (
-                                (_SCROLL_VERTICAL, ecodes.REL_WHEEL_HI_RES, -1),
-                                (_SCROLL_HORIZONTAL, ecodes.REL_HWHEEL_HI_RES, 1),
+                                (_SCROLL_VERTICAL, ecodes.REL_WHEEL_HI_RES, 1),
+                                (_SCROLL_HORIZONTAL, ecodes.REL_HWHEEL_HI_RES, -1),
                             ):
                                 if lib.event_pointer_has_axis(pointer, axis):
                                     value = lib.event_pointer_get_scroll_value(pointer, axis)
