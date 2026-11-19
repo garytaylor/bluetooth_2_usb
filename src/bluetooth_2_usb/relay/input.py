@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import errno
+from contextlib import aclosing
 
 from ..evdev.types import InputDevice
 from ..gadgets.manager import HidGadgets
 from ..hid.dispatch import HidDispatcher
 from ..logging import get_logger
 from .gate import RelayGate
+from .magic_trackpad import libinput_available, mouse_events
 from .shortcut import ShortcutToggler
 
 logger = get_logger(__name__)
@@ -37,7 +39,14 @@ class InputRelay:
         """
         self._input_device = input_device
         self._dispatcher = HidDispatcher(hid_gadgets, relay_gate, shortcut_toggler)
-        self._grab = grab
+        name = (input_device.name or "").casefold()
+        self._is_magic_trackpad = (
+            (getattr(input_device, "info", None) or ())[:3] == (0x0005, 0x004C, 0x0265)
+            and "magic trackpad" in name
+            and libinput_available()
+        )
+        # libinput reads the trackpad using its own file descriptor.
+        self._grab = grab and not self._is_magic_trackpad
         self._relay_gate = relay_gate
 
         self._currently_grabbed = False
@@ -123,6 +132,15 @@ class InputRelay:
 
         :return: None
         """
+        if self._is_magic_trackpad:
+            try:
+                async with aclosing(mouse_events(self._input_device.path)) as events:
+                    async for event in events:
+                        await self._dispatcher.dispatch(event)
+            except OSError as error:
+                logger.warning("Magic Trackpad relay stopped: %s", error)
+            return
+
         input_disappeared = False
         reader = self._input_device.async_read_loop().__aiter__()
         while True:

@@ -74,6 +74,20 @@ sudo bluetooth_2_usb smoketest
 > On Pi Zero boards, the OTG-capable port is the USB data port, not the
 > power-only port.
 
+## Magic Trackpad 2
+
+On Raspberry Pi OS, install `libinput10` to relay a Bluetooth Lightning
+Magic Trackpad 2 as a USB mouse. Pair the trackpad normally and include it in
+the device filters if auto relay is disabled. One-finger pointer movement,
+physical clicks, and two-finger scrolling on either axis are supported.
+The host receives mouse reports, so its mouse scrolling settings apply.
+When libinput is unavailable, the existing input relay is used.
+
+```bash
+sudo apt install libinput10
+sudo systemctl restart bluetooth_2_usb.service
+```
+
 ## Updating
 
 ```bash

@@ -326,6 +326,37 @@ class InputRelayTest(unittest.IsolatedAsyncioTestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
+    async def test_magic_trackpad_uses_libinput_without_grabbing_the_evdev_descriptor(self) -> None:
+        device = _FakeGrabInputDevice()
+        device.name = "Apple Inc. Magic Trackpad"
+        device.info = (0x0005, 0x004C, 0x0265, 0)
+        seen = []
+
+        async def translated_events(path):
+            self.assertEqual(path, device.path)
+            yield _TestRelEvent(ecodes.REL_X, 5)
+            yield _TestSynEvent()
+
+        with (
+            patch("bluetooth_2_usb.relay.input.libinput_available", return_value=True),
+            patch("bluetooth_2_usb.relay.input.mouse_events", side_effect=translated_events),
+        ):
+            relay = InputRelay(device, _OrderedFakeHidGadgets(seen), relay_gate=_active_gate(), grab=True)
+            async with relay:
+                await relay.async_relay_events_loop()
+        self.assertEqual(device.grab_calls, 0)
+        self.assertEqual(len(seen), 1)
+
+    async def test_magic_trackpad_uses_existing_relay_when_libinput_is_missing(self) -> None:
+        device = _FakeGrabInputDevice()
+        device.name = "Apple Inc. Magic Trackpad"
+        device.info = (0x0005, 0x004C, 0x0265, 0)
+        with patch("bluetooth_2_usb.relay.input.libinput_available", return_value=False):
+            relay = InputRelay(device, _OrderedFakeHidGadgets([]), relay_gate=_active_gate(), grab=True)
+            async with relay:
+                await relay.async_relay_events_loop()
+        self.assertEqual(device.grab_calls, 1)
+
     async def test_relay_preserves_event_order_under_slow_writer(self) -> None:
         gate = _active_gate()
         seen = []
