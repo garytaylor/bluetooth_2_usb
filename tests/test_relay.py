@@ -332,7 +332,8 @@ class InputRelayTest(unittest.IsolatedAsyncioTestCase):
         device.info = (0x0005, 0x004C, 0x0265, 0)
         seen = []
 
-        async def translated_events(path):
+        async def translated_events(path, switch_space):
+            self.assertIsNone(switch_space)
             self.assertEqual(path, device.path)
             yield _TestRelEvent(ecodes.REL_X, 5)
             yield _TestSynEvent()

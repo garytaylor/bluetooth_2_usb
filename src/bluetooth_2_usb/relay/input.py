@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import os
 from contextlib import aclosing
 
 from ..evdev.types import InputDevice
@@ -38,6 +39,7 @@ class InputRelay:
         :param shortcut_toggler: Optional handler for toggling relay via a shortcut
         """
         self._input_device = input_device
+        self._hid_gadgets = hid_gadgets
         self._dispatcher = HidDispatcher(hid_gadgets, relay_gate, shortcut_toggler)
         name = (input_device.name or "").casefold()
         self._is_magic_trackpad = (
@@ -125,6 +127,20 @@ class InputRelay:
                 else:
                     logger.warning("Could not ungrab %s: %s", self._input_device, ex)
 
+    async def _switch_space(self, direction: str) -> None:
+        from adafruit_hid.keycode import Keycode
+
+        keyboard = self._hid_gadgets.keyboard
+        if keyboard is None or not self._relay_gate.active:
+            return
+        arrow = Keycode.LEFT_ARROW if direction == "left" else Keycode.RIGHT_ARROW
+        try:
+            await keyboard.tap_when_idle(Keycode.LEFT_CONTROL, arrow, active=lambda: self._relay_gate.active)
+        except BlockingIOError:
+            logger.warning("Spaces shortcut skipped because the USB keyboard write blocked")
+        except BrokenPipeError:
+            self._relay_gate.suspend_writes()
+
     async def async_relay_events_loop(self) -> None:
         """
         Continuously read events from the device and relay them
@@ -134,7 +150,8 @@ class InputRelay:
         """
         if self._is_magic_trackpad:
             try:
-                async with aclosing(mouse_events(self._input_device.path)) as events:
+                switch_space = self._switch_space if os.environ.get("B2U_SPACES_GESTURE") == "1" else None
+                async with aclosing(mouse_events(self._input_device.path, switch_space)) as events:
                     async for event in events:
                         await self._dispatcher.dispatch(event)
             except OSError as error:

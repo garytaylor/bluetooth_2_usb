@@ -10,6 +10,8 @@ from ..evdev import ecodes
 from ..evdev.types import InputEvent
 
 _DEVICE_REMOVED = 2
+_SWIPE_BEGIN, _SWIPE_UPDATE, _SWIPE_END = 800, 801, 802
+_MIN_SWIPE_DISTANCE = 250  # libinput unaccelerated motion units
 _POINTER_MOTION = 400
 _POINTER_BUTTON = 402
 _POINTER_SCROLL_FINGER = 405
@@ -60,6 +62,11 @@ def _load_api():
         "event_pointer_get_button_state": (integer, pointer),
         "event_pointer_has_axis": (integer, pointer, integer),
         "event_pointer_get_scroll_value": (number, pointer, integer),
+        "event_get_gesture_event": (pointer, pointer),
+        "event_gesture_get_finger_count": (integer, pointer),
+        "event_gesture_get_dx_unaccelerated": (number, pointer),
+        "event_gesture_get_dy_unaccelerated": (number, pointer),
+        "event_gesture_get_cancelled": (integer, pointer),
         "event_destroy": (None, pointer),
         "unref": (pointer, pointer),
     }
@@ -79,7 +86,33 @@ def libinput_available():
     return True
 
 
-async def mouse_events(path):
+class _SpacesSwipe:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.active = False
+        self.x = self.y = 0.0
+
+    def begin(self, fingers):
+        self.reset()
+        self.active = fingers == 4
+
+    def update(self, dx, dy):
+        if self.active:
+            self.x += dx
+            self.y += dy
+
+    def end(self, cancelled):
+        x, y, active = self.x, self.y, self.active
+        self.reset()
+        if active and not cancelled and abs(x) >= _MIN_SWIPE_DISTANCE and abs(x) > 1.5 * abs(y):
+            # A swipe left moves the current desktop left, exposing the next Space.
+            return "right" if x < 0 else "left"
+        return None
+
+
+async def mouse_events(path, switch_space=None):
     lib = _load_api()
     context = lib.path_create_context(C.byref(_INTERFACE), None)
     if not context:
@@ -90,6 +123,7 @@ async def mouse_events(path):
     ready = asyncio.Event()
     remainder = {}
     pressed = set()
+    swipe = _SpacesSwipe()
 
     def delta(code, value):
         total = remainder.get(code, 0.0) + value
@@ -112,8 +146,20 @@ async def mouse_events(path):
                 raise OSError(-result, os.strerror(-result))
             while event := lib.get_event(context):
                 frame = []
+                space = None
                 try:
                     kind = lib.event_get_type(event)
+                    if switch_space and kind in (_SWIPE_BEGIN, _SWIPE_UPDATE, _SWIPE_END):
+                        gesture = lib.event_get_gesture_event(event)
+                        if kind == _SWIPE_BEGIN:
+                            swipe.begin(lib.event_gesture_get_finger_count(gesture))
+                        elif kind == _SWIPE_UPDATE:
+                            swipe.update(
+                                lib.event_gesture_get_dx_unaccelerated(gesture),
+                                lib.event_gesture_get_dy_unaccelerated(gesture),
+                            )
+                        else:
+                            space = swipe.end(lib.event_gesture_get_cancelled(gesture))
                     if kind in (_POINTER_MOTION, _POINTER_BUTTON, _POINTER_SCROLL_FINGER):
                         pointer = lib.event_get_pointer_event(event)
                         if kind == _POINTER_MOTION:
@@ -140,6 +186,8 @@ async def mouse_events(path):
                                     frame.append(delta(code, direction * value * 120 / _SCROLL_UNITS_PER_DETENT))
                 finally:
                     lib.event_destroy(event)
+                if space is not None:
+                    await switch_space(space)
                 if kind == _DEVICE_REMOVED:
                     for code in pressed:
                         yield InputEvent(0, 0, ecodes.EV_KEY, code, 0)

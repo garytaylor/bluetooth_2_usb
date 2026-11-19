@@ -15,18 +15,31 @@ class ExtendedKeyboard:
         from adafruit_hid.keyboard import Keyboard
 
         self._keyboard = Keyboard(devices)
+        self._lock = asyncio.Lock()
 
     def __str__(self):
         return str(self._keyboard)
 
     async def press(self, keycode: int) -> None:
-        await self._write(self._keyboard.press, keycode)
+        async with self._lock:
+            await self._write(self._keyboard.press, keycode)
 
     async def release(self, keycode: int) -> None:
-        await self._write(self._keyboard.release, keycode)
+        async with self._lock:
+            await self._write(self._keyboard.release, keycode)
 
     async def release_all(self) -> None:
-        await self._write(self._keyboard.release_all)
+        async with self._lock:
+            await self._write(self._keyboard.release_all)
+
+    async def tap_when_idle(self, modifier: int, keycode: int, *, active) -> None:
+        async with self._lock:
+            if not active() or any(self._keyboard.report):
+                return
+            try:
+                await self._write(self._keyboard.press, modifier, keycode)
+            finally:
+                await self._write(self._keyboard.release, modifier, keycode)
 
     async def _write(self, operation, *args) -> None:
         max_tries = self.REPORT_WRITE_MAX_TRIES

@@ -88,6 +88,21 @@ sudo apt install libinput10
 sudo systemctl restart bluetooth_2_usb.service
 ```
 
+### Optional macOS Spaces shortcuts
+
+Set `B2U_SPACES_GESTURE=1` in the bridge process environment to send one
+Control–Arrow shortcut after a completed horizontal four-finger swipe. This
+assumes the host has enabled the macOS Spaces shortcuts. For the managed
+service, use a systemd override (`sudo systemctl edit bluetooth_2_usb.service`):
+
+```ini
+[Service]
+Environment=B2U_SPACES_GESTURE=1
+```
+
+Restart the service after saving the override. On a USB switch, the shortcut
+goes to the currently selected host.
+
 ## Updating
 
 ```bash
